@@ -53,7 +53,7 @@ const T = {
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/upload";
+  const next = searchParams.get("next") || "/wall";
   const codeFromUrl = searchParams.get("code") || "";
 
   const [lang] = useState<"en" | "zh" | "fr">("zh");

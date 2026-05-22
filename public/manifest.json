@@ -2,7 +2,7 @@
   "name": "GrowthBook",
   "short_name": "GrowthBook",
   "description": "Your child's memory wall",
-  "start_url": "/upload",
+  "start_url": "/wall",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0F6E56",
