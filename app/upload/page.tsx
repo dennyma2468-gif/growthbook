@@ -12,12 +12,15 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { Language } from "@/lib/agents";
 import {
-  getOrCreateWallId,
   isSupabaseReady,
   savePhotosToSupabase,
-  normalizeWallCode,
-  setWallId,
 } from "@/lib/photos";
+import {
+  ensureUserWall,
+  normalizeWallCode,
+  switchToWall,
+  getCachedWallId,
+} from "@/lib/walls";
 import { resizeAndEncode } from "@/lib/image-utils";
 import WallCodeBar from "@/components/WallCodeBar";
 
@@ -91,22 +94,32 @@ export default function UploadPage() {
   const [isNewWall, setIsNewWall] = useState(false);
 
   useEffect(() => {
-    let { id, isNew } = getOrCreateWallId();
-    if (typeof window !== "undefined") {
-      const fromUrl = new URLSearchParams(window.location.search).get("code");
-      if (fromUrl) {
-        const normalized = normalizeWallCode(fromUrl);
-        if (normalized) {
-          setWallId(normalized);
-          id = normalized;
-          isNew = false;
+    async function init() {
+      try {
+        const fromUrl =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("code")
+            : null;
+        if (fromUrl) {
+          const normalized = normalizeWallCode(fromUrl);
+          if (normalized) {
+            const id = await switchToWall(normalized);
+            setWallCodeState(id);
+            setIsNewWall(false);
+            return;
+          }
         }
+        const child = localStorage.getItem("growthbook_child") || "";
+        const { wallId, isNew } = await ensureUserWall(child || undefined);
+        setWallCodeState(wallId);
+        setIsNewWall(isNew);
+      } catch (e) {
+        console.error(e);
       }
+      const storedLang = localStorage.getItem("growthbook_lang") as Language | null;
+      if (storedLang) setLang(storedLang);
     }
-    setWallCodeState(id);
-    setIsNewWall(isNew);
-    const storedLang = localStorage.getItem("growthbook_lang") as Language | null;
-    if (storedLang) setLang(storedLang);
+    init();
   }, []);
 
   const s = STRINGS[lang];
@@ -191,7 +204,8 @@ export default function UploadPage() {
       localStorage.setItem("growthbook_lang", lang);
 
       if (isSupabaseReady()) {
-        const wallId = wallCode || getOrCreateWallId().id;
+        const wallId = wallCode || getCachedWallId();
+        if (!wallId) throw new Error("No wall selected");
         await savePhotosToSupabase(newPhotos, wallId);
         // Only store settings locally — photos live in Supabase
         localStorage.removeItem("growthbook_photos");

@@ -6,13 +6,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DisplayPhoto } from "@/lib/agents";
+import { isSupabaseReady, loadPhotosFromSupabase } from "@/lib/photos";
 import {
-  getOrCreateWallId,
-  isSupabaseReady,
-  loadPhotosFromSupabase,
-  setWallId,
+  ensureUserWall,
+  switchToWall,
   normalizeWallCode,
-} from "@/lib/photos";
+  getCachedWallId,
+} from "@/lib/walls";
 import WallCodeBar from "@/components/WallCodeBar";
 
 const STRINGS = {
@@ -125,18 +125,23 @@ export default function WallPage() {
       setChildName(name);
       setLang(l);
 
-      // Open shared link: /wall?code=ABC-DEF-GHJ
-      let { id: wallId, isNew } = getOrCreateWallId();
-      if (typeof window !== "undefined") {
-        const fromUrl = new URLSearchParams(window.location.search).get("code");
-        if (fromUrl) {
-          const normalized = normalizeWallCode(fromUrl);
-          if (normalized) {
-            setWallId(normalized);
-            wallId = normalized;
-            isNew = false;
-          }
+      let wallId = "";
+      let isNew = false;
+      const fromUrl =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("code")
+          : null;
+      if (fromUrl) {
+        const normalized = normalizeWallCode(fromUrl);
+        if (normalized) {
+          wallId = await switchToWall(normalized);
+          isNew = false;
         }
+      }
+      if (!wallId) {
+        const result = await ensureUserWall(name || undefined);
+        wallId = result.wallId;
+        isNew = result.isNew;
       }
       setWallCode(wallId);
       setIsNewWall(isNew);

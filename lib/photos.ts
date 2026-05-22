@@ -1,12 +1,21 @@
 // lib/photos.ts — Save/load photos via Supabase Storage + memories table
 
 import type { DisplayPhoto } from "@/lib/agents";
-import { getSupabase, isSupabaseReady } from "@/lib/supabase";
+import { createClient, isSupabaseReady } from "@/lib/supabase/client";
+import { getCachedWallId } from "@/lib/walls";
 
 const BUCKET = "photos";
-const WALL_ID_KEY = "growthbook_wall_id";
-const RECENT_CODES_KEY = "growthbook_recent_codes";
-const MAX_RECENT = 8;
+
+// Re-export wall helpers for components
+export {
+  normalizeWallCode,
+  setActiveWallId as setWallId,
+  getCachedWallId,
+  getUserWalls,
+  ensureUserWall,
+  switchToWall,
+  createWallForUser,
+} from "@/lib/walls";
 
 export type WallPhoto = DisplayPhoto & {
   imageUrl?: string;
@@ -25,60 +34,6 @@ type MemoryRow = {
   is_highlight: boolean;
   display_order: number;
 };
-
-// Readable code: no 0/O/1/I/L confusion. 9 chars, 3 groups, ~36^9 possibilities.
-const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-
-function generateCode(): string {
-  const chars = Array.from({ length: 9 }, () =>
-    CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]
-  ).join("");
-  return `${chars.slice(0, 3)}-${chars.slice(3, 6)}-${chars.slice(6, 9)}`;
-}
-
-export function normalizeWallCode(code: string): string {
-  const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (clean.length !== 9) return "";
-  return `${clean.slice(0, 3)}-${clean.slice(3, 6)}-${clean.slice(6, 9)}`;
-}
-
-export function getOrCreateWallId(): { id: string; isNew: boolean } {
-  if (typeof window === "undefined") return { id: "server", isNew: false };
-  const existing = localStorage.getItem(WALL_ID_KEY);
-  if (existing) return { id: existing, isNew: false };
-  const id = generateCode();
-  localStorage.setItem(WALL_ID_KEY, id);
-  addRecentCode(id);
-  return { id, isNew: true };
-}
-
-export function setWallId(code: string): string {
-  const normalized = normalizeWallCode(code);
-  if (!normalized) throw new Error("Invalid wall code");
-  localStorage.setItem(WALL_ID_KEY, normalized);
-  addRecentCode(normalized);
-  return normalized;
-}
-
-export function getRecentCodes(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(RECENT_CODES_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function addRecentCode(code: string): void {
-  if (typeof window === "undefined") return;
-  const current = getRecentCodes().filter((c) => c !== code);
-  current.unshift(code);
-  localStorage.setItem(
-    RECENT_CODES_KEY,
-    JSON.stringify(current.slice(0, MAX_RECENT))
-  );
-}
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
   const binary = atob(base64);
@@ -107,8 +62,9 @@ export async function savePhotosToSupabase(
   photos: WallPhoto[],
   wallId?: string
 ): Promise<void> {
-  const supabase = getSupabase();
-  const wid = wallId || getOrCreateWallId().id;
+  const supabase = createClient();
+  const wid = wallId || getCachedWallId();
+  if (!wid) throw new Error("No wall selected");
 
   for (const photo of photos) {
     if (!photo.base64) continue;
@@ -144,8 +100,9 @@ export async function savePhotosToSupabase(
 
 /** Load all photos for this device's wall. */
 export async function loadPhotosFromSupabase(wallId?: string): Promise<WallPhoto[]> {
-  const supabase = getSupabase();
-  const wid = wallId || getOrCreateWallId().id;
+  const supabase = createClient();
+  const wid = wallId || getCachedWallId();
+  if (!wid) throw new Error("No wall selected");
 
   const { data, error } = await supabase
     .from("memories")

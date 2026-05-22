@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { signOut } from "@/lib/auth";
+import { useRouter } from "next/navigation";
 import {
-  getRecentCodes,
+  getUserWalls,
   normalizeWallCode,
-  setWallId,
-} from "@/lib/photos";
+  switchToWall,
+  createWallForUser,
+} from "@/lib/walls";
 
 type Lang = "en" | "zh" | "fr";
 
@@ -22,9 +25,12 @@ const T = {
     cancel: "Cancel",
     enter: "Enter",
     recent: "Recent walls",
+    signOut: "Sign out",
+    myWalls: "My walls",
+    newWall: "+ New wall",
     shareHint: "Anyone with this link can view this wall.",
     saveWarning:
-      "⚠️ Save this code! It's the only way to access these photos later. There's no password.",
+      "⚠️ Your wall is linked to your account. You can sign in on any device with the same email.",
     newWallTitle: "New wall created",
     dismiss: "Got it",
   },
@@ -42,9 +48,12 @@ const T = {
     recent: "最近的墙",
     shareHint: "有此链接的人都可查看这面墙。",
     saveWarning:
-      "⚠️ 请保存这个墙码！这是以后访问这些照片的唯一凭证，没有密码可以恢复。",
+      "⚠️ 这面墙已绑定你的账号。用同一邮箱在任何设备登录即可查看。",
     newWallTitle: "新墙已创建",
-    dismiss: "我已保存",
+    dismiss: "我知道了",
+    signOut: "退出登录",
+    myWalls: "我的墙",
+    newWall: "+ 新建墙",
   },
   fr: {
     wallCode: "Code",
@@ -60,9 +69,12 @@ const T = {
     recent: "Murs récents",
     shareHint: "Toute personne avec ce lien peut voir ce mur.",
     saveWarning:
-      "⚠️ Sauvegardez ce code ! C'est le seul moyen de retrouver ces photos plus tard.",
+      "⚠️ Ce mur est lié à votre compte. Connectez-vous avec le même e-mail sur n'importe quel appareil.",
     newWallTitle: "Nouveau mur créé",
     dismiss: "Compris",
+    signOut: "Déconnexion",
+    myWalls: "Mes murs",
+    newWall: "+ Nouveau mur",
   },
 };
 
@@ -88,11 +100,14 @@ export default function WallCodeBar({
   const [switching, setSwitching] = useState(false);
   const [codeInput, setCodeInput] = useState("");
   const [codeError, setCodeError] = useState("");
-  const [recent, setRecent] = useState<string[]>([]);
+  const [myWalls, setMyWalls] = useState<string[]>([]);
   const [showNewBanner, setShowNewBanner] = useState(isNew);
+  const router = useRouter();
 
   useEffect(() => {
-    setRecent(getRecentCodes().filter((c) => c !== wallCode));
+    getUserWalls()
+      .then((walls) => setMyWalls(walls.map((w) => w.id).filter((c) => c !== wallCode)))
+      .catch(() => setMyWalls([]));
   }, [wallCode, switching]);
 
   useEffect(() => {
@@ -115,9 +130,9 @@ export default function WallCodeBar({
     } catch {}
   }
 
-  function applyCode(code: string) {
+  async function applyCode(code: string) {
     try {
-      const normalized = setWallId(code);
+      const normalized = await switchToWall(code);
       setSwitching(false);
       setCodeInput("");
       setCodeError("");
@@ -127,13 +142,28 @@ export default function WallCodeBar({
     }
   }
 
-  function submit() {
+  async function handleSignOut() {
+    await signOut();
+    router.push("/login");
+    router.refresh();
+  }
+
+  async function handleNewWall() {
+    try {
+      const id = await createWallForUser();
+      onChange?.(id);
+    } catch (e) {
+      setCodeError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function submit() {
     const normalized = normalizeWallCode(codeInput);
     if (!normalized) {
       setCodeError(s.invalidCode);
       return;
     }
-    applyCode(normalized);
+    await applyCode(normalized);
   }
 
   return (
@@ -260,6 +290,21 @@ export default function WallCodeBar({
         >
           {s.switch}
         </button>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          style={{
+            padding: "4px 10px",
+            fontSize: 11,
+            border: "1px solid #ddd",
+            background: "transparent",
+            color: "#888",
+            borderRadius: 16,
+            cursor: "pointer",
+          }}
+        >
+          {s.signOut}
+        </button>
       </div>
 
       {switching && (
@@ -312,7 +357,7 @@ export default function WallCodeBar({
             {codeError && (
               <p style={{ color: "#c00", fontSize: 12, marginBottom: 8 }}>{codeError}</p>
             )}
-            <div style={{ display: "flex", gap: 8, marginBottom: recent.length ? 16 : 0 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: myWalls.length ? 16 : 0 }}>
               <button
                 type="button"
                 onClick={() => {
@@ -349,7 +394,26 @@ export default function WallCodeBar({
               </button>
             </div>
 
-            {recent.length > 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: myWalls.length ? 12 : 0 }}>
+              <button
+                type="button"
+                onClick={handleNewWall}
+                style={{
+                  flex: 1,
+                  padding: "8px",
+                  fontSize: 12,
+                  border: "1px dashed #0F6E56",
+                  background: "#f9fffe",
+                  color: "#0F6E56",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                }}
+              >
+                {s.newWall}
+              </button>
+            </div>
+
+            {myWalls.length > 0 && (
               <>
                 <p
                   style={{
@@ -361,10 +425,10 @@ export default function WallCodeBar({
                     letterSpacing: 0.5,
                   }}
                 >
-                  {s.recent}
+                  {s.myWalls}
                 </p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {recent.map((c) => (
+                  {myWalls.map((c) => (
                     <button
                       key={c}
                       type="button"
