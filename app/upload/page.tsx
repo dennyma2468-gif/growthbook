@@ -8,15 +8,18 @@
 // 4. Results saved to localStorage (no database needed for MVP)
 // 5. Redirect to /wall
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { Language } from "@/lib/agents";
 import {
   getOrCreateWallId,
   isSupabaseReady,
   savePhotosToSupabase,
+  normalizeWallCode,
+  setWallId,
 } from "@/lib/photos";
 import { resizeAndEncode } from "@/lib/image-utils";
+import WallCodeBar from "@/components/WallCodeBar";
 
 type SelectedPhoto = {
   id: string;
@@ -84,6 +87,27 @@ export default function UploadPage() {
   const [selected, setSelected] = useState<SelectedPhoto[]>([]);
   const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0); // 0=idle, 1-3=agents, 4=done
   const [error, setError] = useState("");
+  const [wallCode, setWallCodeState] = useState("");
+  const [isNewWall, setIsNewWall] = useState(false);
+
+  useEffect(() => {
+    let { id, isNew } = getOrCreateWallId();
+    if (typeof window !== "undefined") {
+      const fromUrl = new URLSearchParams(window.location.search).get("code");
+      if (fromUrl) {
+        const normalized = normalizeWallCode(fromUrl);
+        if (normalized) {
+          setWallId(normalized);
+          id = normalized;
+          isNew = false;
+        }
+      }
+    }
+    setWallCodeState(id);
+    setIsNewWall(isNew);
+    const storedLang = localStorage.getItem("growthbook_lang") as Language | null;
+    if (storedLang) setLang(storedLang);
+  }, []);
 
   const s = STRINGS[lang];
 
@@ -167,7 +191,7 @@ export default function UploadPage() {
       localStorage.setItem("growthbook_lang", lang);
 
       if (isSupabaseReady()) {
-        const wallId = getOrCreateWallId();
+        const wallId = wallCode || getOrCreateWallId().id;
         await savePhotosToSupabase(newPhotos, wallId);
         // Only store settings locally — photos live in Supabase
         localStorage.removeItem("growthbook_photos");
@@ -207,6 +231,18 @@ export default function UploadPage() {
       padding: "1.5rem 1rem",
       fontFamily: "var(--font-sans, system-ui)",
     }}>
+      {wallCode && (
+        <WallCodeBar
+          wallCode={wallCode}
+          lang={lang}
+          isNew={isNewWall && selected.length === 0}
+          onChange={(c) => {
+            setWallCodeState(c);
+            setIsNewWall(false);
+          }}
+        />
+      )}
+
       {/* Language toggle */}
       <div style={{ display: "flex", gap: 8, marginBottom: "1.5rem", position: "relative", zIndex: 10 }}>
         {(["en", "zh", "fr"] as Language[]).map((l) => (

@@ -5,6 +5,8 @@ import { getSupabase, isSupabaseReady } from "@/lib/supabase";
 
 const BUCKET = "photos";
 const WALL_ID_KEY = "growthbook_wall_id";
+const RECENT_CODES_KEY = "growthbook_recent_codes";
+const MAX_RECENT = 8;
 
 export type WallPhoto = DisplayPhoto & {
   imageUrl?: string;
@@ -40,21 +42,42 @@ export function normalizeWallCode(code: string): string {
   return `${clean.slice(0, 3)}-${clean.slice(3, 6)}-${clean.slice(6, 9)}`;
 }
 
-export function getOrCreateWallId(): string {
-  if (typeof window === "undefined") return "server";
-  let id = localStorage.getItem(WALL_ID_KEY);
-  if (!id) {
-    id = generateCode();
-    localStorage.setItem(WALL_ID_KEY, id);
-  }
-  return id;
+export function getOrCreateWallId(): { id: string; isNew: boolean } {
+  if (typeof window === "undefined") return { id: "server", isNew: false };
+  const existing = localStorage.getItem(WALL_ID_KEY);
+  if (existing) return { id: existing, isNew: false };
+  const id = generateCode();
+  localStorage.setItem(WALL_ID_KEY, id);
+  addRecentCode(id);
+  return { id, isNew: true };
 }
 
 export function setWallId(code: string): string {
   const normalized = normalizeWallCode(code);
   if (!normalized) throw new Error("Invalid wall code");
   localStorage.setItem(WALL_ID_KEY, normalized);
+  addRecentCode(normalized);
   return normalized;
+}
+
+export function getRecentCodes(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENT_CODES_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addRecentCode(code: string): void {
+  if (typeof window === "undefined") return;
+  const current = getRecentCodes().filter((c) => c !== code);
+  current.unshift(code);
+  localStorage.setItem(
+    RECENT_CODES_KEY,
+    JSON.stringify(current.slice(0, MAX_RECENT))
+  );
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -85,7 +108,7 @@ export async function savePhotosToSupabase(
   wallId?: string
 ): Promise<void> {
   const supabase = getSupabase();
-  const wid = wallId || getOrCreateWallId();
+  const wid = wallId || getOrCreateWallId().id;
 
   for (const photo of photos) {
     if (!photo.base64) continue;
@@ -122,7 +145,7 @@ export async function savePhotosToSupabase(
 /** Load all photos for this device's wall. */
 export async function loadPhotosFromSupabase(wallId?: string): Promise<WallPhoto[]> {
   const supabase = getSupabase();
-  const wid = wallId || getOrCreateWallId();
+  const wid = wallId || getOrCreateWallId().id;
 
   const { data, error } = await supabase
     .from("memories")

@@ -13,6 +13,7 @@ import {
   setWallId,
   normalizeWallCode,
 } from "@/lib/photos";
+import WallCodeBar from "@/components/WallCodeBar";
 
 const STRINGS = {
   en: {
@@ -77,10 +78,6 @@ const STRINGS = {
   },
 };
 
-function getShareUrl(code: string): string {
-  if (typeof window === "undefined") return "";
-  return `${window.location.origin}/wall?code=${encodeURIComponent(code)}`;
-}
 
 // Tag color mapping
 const TAG_COLORS: Record<string, { bg: string; text: string }> = {
@@ -108,12 +105,8 @@ export default function WallPage() {
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [wallCode, setWallCode] = useState("");
+  const [isNewWall, setIsNewWall] = useState(false);
   const [zoomed, setZoomed] = useState<DisplayPhoto | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [switching, setSwitching] = useState(false);
-  const [codeInput, setCodeInput] = useState("");
-  const [codeError, setCodeError] = useState("");
 
   async function loadFor(wallId: string) {
     if (isSupabaseReady()) {
@@ -133,7 +126,7 @@ export default function WallPage() {
       setLang(l);
 
       // Open shared link: /wall?code=ABC-DEF-GHJ
-      let wallId = getOrCreateWallId();
+      let { id: wallId, isNew } = getOrCreateWallId();
       if (typeof window !== "undefined") {
         const fromUrl = new URLSearchParams(window.location.search).get("code");
         if (fromUrl) {
@@ -141,10 +134,12 @@ export default function WallPage() {
           if (normalized) {
             setWallId(normalized);
             wallId = normalized;
+            isNew = false;
           }
         }
       }
       setWallCode(wallId);
+      setIsNewWall(isNew);
 
       try {
         await loadFor(wallId);
@@ -159,42 +154,14 @@ export default function WallPage() {
     load();
   }, []);
 
-  async function copyCode() {
+  async function handleWallChange(newCode: string) {
+    setWallCode(newCode);
+    setIsNewWall(false);
+    setLoading(true);
     try {
-      await navigator.clipboard.writeText(wallCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // ignore
-    }
-  }
-
-  async function copyShareLink() {
-    try {
-      await navigator.clipboard.writeText(getShareUrl(wallCode));
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    } catch {
-      // ignore
-    }
-  }
-
-  async function submitNewCode() {
-    setCodeError("");
-    const normalized = normalizeWallCode(codeInput);
-    if (!normalized) {
-      setCodeError(s.invalidCode);
-      return;
-    }
-    try {
-      setWallId(normalized);
-      setWallCode(normalized);
-      setLoading(true);
-      setSwitching(false);
-      setCodeInput("");
-      await loadFor(normalized);
+      await loadFor(newCode);
     } catch (err) {
-      setCodeError(err instanceof Error ? err.message : String(err));
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -229,168 +196,19 @@ export default function WallPage() {
     );
   }
 
-  const WallCodeBar = (
-    <div style={{ marginBottom: "1rem" }}>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          background: "#f5f7f9",
-          border: "1px solid #e5e7eb",
-          borderRadius: 12,
-          fontSize: 12,
-        }}
-      >
-        <span style={{ color: "#666" }}>{s.wallCode}:</span>
-        <code style={{ fontFamily: "monospace", fontWeight: 600, color: "#0F6E56", letterSpacing: 1 }}>
-          {wallCode}
-        </code>
-        <button
-          type="button"
-          onClick={copyCode}
-          style={{
-            padding: "4px 10px",
-            fontSize: 11,
-            border: "1px solid #0F6E56",
-            background: "transparent",
-            color: "#0F6E56",
-            borderRadius: 16,
-            cursor: "pointer",
-          }}
-        >
-          {copied ? s.copied : s.copy}
-        </button>
-        <button
-          type="button"
-          onClick={copyShareLink}
-          style={{
-            padding: "4px 10px",
-            fontSize: 11,
-            border: "1px solid #0F6E56",
-            background: "#E1F5EE",
-            color: "#085041",
-            borderRadius: 16,
-            cursor: "pointer",
-            fontWeight: 500,
-          }}
-        >
-          {linkCopied ? s.linkCopied : s.shareLink}
-        </button>
-        <button
-          type="button"
-          onClick={() => setSwitching(true)}
-          style={{
-            padding: "4px 10px",
-            fontSize: 11,
-            border: "1px solid #ddd",
-            background: "transparent",
-            color: "#666",
-            borderRadius: 16,
-            cursor: "pointer",
-          }}
-        >
-          {s.switch}
-        </button>
-      </div>
-      <p style={{ fontSize: 11, color: "#999", marginTop: 6, marginBottom: 0, lineHeight: 1.4 }}>
-        {s.shareHint}
-      </p>
-    </div>
-  );
-
-  const SwitchModal = switching && (
-    <div
-      onClick={() => setSwitching(false)}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-        zIndex: 1100,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "white",
-          borderRadius: 16,
-          padding: "1.5rem",
-          width: "100%",
-          maxWidth: 360,
-        }}
-      >
-        <h3 style={{ margin: 0, marginBottom: 12, fontSize: 16, fontWeight: 600 }}>{s.enterCode}</h3>
-        <input
-          type="text"
-          value={codeInput}
-          onChange={(e) => setCodeInput(e.target.value)}
-          placeholder="ABC-DEF-GHJ"
-          autoFocus
-          style={{
-            width: "100%",
-            padding: "12px 14px",
-            fontSize: 16,
-            fontFamily: "monospace",
-            letterSpacing: 1,
-            border: "1px solid #ddd",
-            borderRadius: 10,
-            marginBottom: 8,
-            outline: "none",
-            textTransform: "uppercase",
-          }}
-        />
-        {codeError && <p style={{ color: "#c00", fontSize: 12, marginBottom: 8 }}>{codeError}</p>}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => {
-              setSwitching(false);
-              setCodeInput("");
-              setCodeError("");
-            }}
-            style={{
-              flex: 1,
-              padding: "10px",
-              border: "1px solid #ddd",
-              background: "transparent",
-              borderRadius: 10,
-              cursor: "pointer",
-            }}
-          >
-            {s.cancel}
-          </button>
-          <button
-            type="button"
-            onClick={submitNewCode}
-            style={{
-              flex: 1,
-              padding: "10px",
-              border: "none",
-              background: "#0F6E56",
-              color: "white",
-              borderRadius: 10,
-              cursor: "pointer",
-              fontWeight: 500,
-            }}
-          >
-            {s.enter}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  const codeBar = wallCode ? (
+    <WallCodeBar
+      wallCode={wallCode}
+      lang={lang}
+      isNew={isNewWall}
+      onChange={handleWallChange}
+    />
+  ) : null;
 
   if (photos.length === 0) {
     return (
       <main style={{ maxWidth: 480, margin: "0 auto", padding: "2rem 1rem", textAlign: "center" }}>
-        {WallCodeBar}
-        {SwitchModal}
+        {codeBar}
         <div style={{ fontSize: 48, marginTop: "2rem", marginBottom: 16 }}>📭</div>
         <p style={{ fontSize: 18, fontWeight: 500 }}>{s.empty}</p>
         <p style={{ color: "#888", marginBottom: "1.5rem" }}>{s.emptyHint}</p>
@@ -416,8 +234,7 @@ export default function WallPage() {
 
   return (
     <main style={{ maxWidth: 480, margin: "0 auto", padding: "1rem" }}>
-      {WallCodeBar}
-      {SwitchModal}
+      {codeBar}
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
